@@ -12,6 +12,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 from datetime import date
@@ -87,6 +88,30 @@ def extract_json_block(text):
     return json.loads(match.group(1))
 
 
+def _parse_retry_seconds(error_text):
+    match = re.search(r"try again in ([\d.]+)s", error_text)
+    return float(match.group(1)) + 0.5 if match else None
+
+
+def _post_json(url, body, headers, max_retries=3):
+    """POST with a couple of retries on 429 -- rate limits reset within seconds
+    and the provider usually tells us how long to wait, so it's not worth
+    failing a whole run over a transient token-per-minute cap."""
+    for attempt in range(max_retries):
+        req = urllib.request.Request(url, data=body, headers=headers)
+        try:
+            with urllib.request.urlopen(req, timeout=300) as resp:
+                return json.load(resp)
+        except urllib.error.HTTPError as e:
+            error_text = e.read().decode()
+            if e.code == 429 and attempt < max_retries - 1:
+                retry_after = e.headers.get("Retry-After")
+                wait = float(retry_after) if retry_after else (_parse_retry_seconds(error_text) or 5)
+                time.sleep(wait)
+                continue
+            raise RuntimeError(f"{e.code}: {error_text}")
+
+
 def call_anthropic(prompt, model, max_searches):
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
@@ -98,27 +123,21 @@ def call_anthropic(prompt, model, max_searches):
         "tools": [{"type": "web_search_20260209", "name": "web_search", "max_uses": max_searches}],
         "messages": [{"role": "user", "content": prompt}],
     }).encode()
+    headers = {
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+        "User-Agent": USER_AGENT,
+    }
 
-    req = urllib.request.Request(
-        "https://api.anthropic.com/v1/messages",
-        data=body,
-        headers={
-            "x-api-key": api_key,
-            "anthropic-version": "2023-06-01",
-            "content-type": "application/json",
-            "User-Agent": USER_AGENT,
-        },
-    )
     try:
-        with urllib.request.urlopen(req, timeout=300) as resp:
-            data = json.load(resp)
-    except urllib.error.HTTPError as e:
-        sys.exit(f"Anthropic API error {e.code}: {e.read().decode()}")
+        data = _post_json("https://api.anthropic.com/v1/messages", body, headers)
+    except RuntimeError as e:
+        sys.exit(f"Anthropic API error {e}")
 
-    text = "".join(
+    return "".join(
         block.get("text", "") for block in data.get("content", []) if block.get("type") == "text"
     )
-    return text
 
 
 def call_groq(prompt, model):
@@ -131,21 +150,16 @@ def call_groq(prompt, model):
         "max_tokens": 4096,
         "messages": [{"role": "user", "content": prompt}],
     }).encode()
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "User-Agent": USER_AGENT,
+    }
 
-    req = urllib.request.Request(
-        "https://api.groq.com/openai/v1/chat/completions",
-        data=body,
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-            "User-Agent": USER_AGENT,
-        },
-    )
     try:
-        with urllib.request.urlopen(req, timeout=300) as resp:
-            data = json.load(resp)
-    except urllib.error.HTTPError as e:
-        sys.exit(f"Groq API error {e.code}: {e.read().decode()}")
+        data = _post_json("https://api.groq.com/openai/v1/chat/completions", body, headers)
+    except RuntimeError as e:
+        sys.exit(f"Groq API error {e}")
 
     return data["choices"][0]["message"]["content"]
 
