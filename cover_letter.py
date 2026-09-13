@@ -21,6 +21,10 @@ from fpdf import FPDF
 ANTHROPIC_MODEL = "claude-opus-5"
 GROQ_MODEL = "groq/compound"
 
+# urllib's default "Python-urllib/x.y" User-Agent gets blocked outright by
+# Groq's Cloudflare bot protection (403, error code 1010), so send a normal one.
+USER_AGENT = "Mozilla/5.0 (compatible; cover-letter-script/1.0)"
+
 PROMPT_TEMPLATE = """You are helping a real job applicant write their own cover letter.
 
 Below is the applicant's resume and the job description they're applying to.
@@ -102,6 +106,7 @@ def call_anthropic(prompt, model, max_searches):
             "x-api-key": api_key,
             "anthropic-version": "2023-06-01",
             "content-type": "application/json",
+            "User-Agent": USER_AGENT,
         },
     )
     try:
@@ -133,6 +138,7 @@ def call_groq(prompt, model):
         headers={
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
+            "User-Agent": USER_AGENT,
         },
     )
     try:
