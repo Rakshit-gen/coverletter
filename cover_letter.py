@@ -79,6 +79,20 @@ def load_jd_text(path):
         return f.read().strip()
 
 
+MAX_INPUT_CHARS = 12000  # a real resume/JD is a few thousand chars; this just
+# catches someone pasting a whole webpage or the wrong file, before that turns
+# into a confusing 413 from the provider.
+
+
+def check_input_sizes(resume_text, jd_text):
+    for label, text in (("resume", resume_text), ("job description", jd_text)):
+        if len(text) > MAX_INPUT_CHARS:
+            raise ValueError(
+                f"{label} text is {len(text)} characters, over the {MAX_INPUT_CHARS} limit. "
+                f"Trim it down -- make sure you pasted just the {label}, not a whole page."
+            )
+
+
 def extract_json_block(text):
     match = re.search(r"```json\s*(\{.*?\})\s*```", text, re.DOTALL)
     if not match:
@@ -230,6 +244,11 @@ def main():
 
     resume_text = extract_pdf_text(args.resume)
     jd_text = load_jd_text(args.jd) if args.jd else args.jd_text.strip()
+
+    try:
+        check_input_sizes(resume_text, jd_text)
+    except ValueError as e:
+        sys.exit(str(e))
 
     prompt = PROMPT_TEMPLATE.format(resume_text=resume_text, jd_text=jd_text)
 

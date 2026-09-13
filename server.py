@@ -88,6 +88,7 @@ class Handler(BaseHTTPRequestHandler):
                 tmp.flush()
                 resume_text = cl.extract_pdf_text(tmp.name)
 
+            cl.check_input_sizes(resume_text, jd_text)
             prompt = cl.PROMPT_TEMPLATE.format(resume_text=resume_text, jd_text=jd_text)
             if provider == "groq":
                 raw = cl.call_groq(prompt, cl.GROQ_MODEL)
