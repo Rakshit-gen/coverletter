@@ -190,37 +190,54 @@ def find_contact_line(resume_text):
     return "  |  ".join(parts)
 
 
+_UNICODE_PUNCT = {
+    "‘": "'", "’": "'", "“": '"', "”": '"',
+    "–": "-", "—": "-", "…": "...", "•": "-",
+}
+
+
+def _to_latin1(text):
+    """The core Helvetica font can only render latin-1. Model output routinely
+    contains em dashes and curly quotes, which would otherwise crash PDF
+    generation after the (slow, paid) API call already succeeded."""
+    for uni, ascii_ in _UNICODE_PUNCT.items():
+        text = text.replace(uni, ascii_)
+    return text.encode("latin-1", "replace").decode("latin-1")
+
+
 def build_pdf(fields, resume_text, out_dir):
     pdf = FPDF(format="Letter")
     pdf.set_margins(25, 25, 25)
     pdf.set_auto_page_break(auto=True, margin=25)
     pdf.add_page()
 
+    applicant_name = _to_latin1(fields["applicant_name"])
+
     pdf.set_font("Helvetica", "B", 14)
-    pdf.cell(0, 8, fields["applicant_name"], new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 8, applicant_name, new_x="LMARGIN", new_y="NEXT")
 
     contact = find_contact_line(resume_text)
     if contact:
         pdf.set_font("Helvetica", "", 10)
-        pdf.cell(0, 6, contact, new_x="LMARGIN", new_y="NEXT")
+        pdf.cell(0, 6, _to_latin1(contact), new_x="LMARGIN", new_y="NEXT")
 
     pdf.ln(6)
     pdf.set_font("Helvetica", "", 11)
     pdf.cell(0, 6, date.today().strftime("%B %d, %Y"), new_x="LMARGIN", new_y="NEXT")
     pdf.ln(6)
 
-    pdf.cell(0, 6, f"Dear {fields['company_name']} Hiring Team,", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 6, f"Dear {_to_latin1(fields['company_name'])} Hiring Team,", new_x="LMARGIN", new_y="NEXT")
     pdf.ln(4)
 
     for paragraph in fields["letter_body"].split("\n\n"):
         paragraph = paragraph.strip()
         if not paragraph:
             continue
-        pdf.multi_cell(0, 6, paragraph)
+        pdf.multi_cell(0, 6, _to_latin1(paragraph))
         pdf.ln(4)
 
     pdf.cell(0, 6, "Sincerely,", new_x="LMARGIN", new_y="NEXT")
-    pdf.cell(0, 6, fields["applicant_name"], new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 6, applicant_name, new_x="LMARGIN", new_y="NEXT")
 
     name_part = sanitize_filename(fields["applicant_name"])
     company_part = sanitize_filename(fields["company_name"])
